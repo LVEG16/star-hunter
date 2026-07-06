@@ -52,4 +52,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_scores_created ON scores(created_at DESC);
 `);
 
+// 兼容旧数据库：添加 coins 和 upgrade_levels 字段（如果不存在）
+try {
+  db.exec(`ALTER TABLE player_stats ADD COLUMN coins INTEGER DEFAULT 0;`);
+} catch (e) { /* 字段已存在 */ }
+try {
+  db.exec(`ALTER TABLE player_stats ADD COLUMN upgrade_levels TEXT DEFAULT '{"attack":0,"fireRate":0,"maxHp":0,"speed":0,"bulletSpeed":0}';`);
+} catch (e) { /* 字段已存在 */ }
+
 export default db;

@@ -6,11 +6,13 @@ import {
   Bullet,
   Powerup,
   PowerupType,
+  Coin,
   Particle,
   Star,
   GameState,
   GameData,
   GameStats,
+  UpgradeLevels,
 } from './types'
 import {
   PLAYER_SPEED,
@@ -23,8 +25,13 @@ import {
   BOSS_EVERY_N_WAVES,
   POWERUP_DROP_CHANCE,
   CANVAS_BG,
+  COIN_DROP_CHANCE,
+  BOSS_COIN_COUNT,
+  COIN_VALUES,
   getGameSpeed,
   getEnemyFireRateMul,
+  getLevel,
+  getLevelDifficulty,
 } from './constants'
 
 let nextId = 1
@@ -44,11 +51,17 @@ export class GameEngine {
   animationId: number
   onStateChange: (state: GameState, score: number, wave: number) => void
   private lastTime: number
+  private accumulator: number
+  private readonly FIXED_DT = 1000 / 60 // 固定时间步长：每秒60次update
   // 触摸输入向量（来自虚拟摇杆），范围 -1..1
   touchInput: { x: number; y: number }
   // 拖动飞船模式：目标位置
   touchTarget: { x: number; y: number; active: boolean }
   controlMode: ControlMode
+  // 战机升级等级
+  upgradeLevels: UpgradeLevels
+  // 金币收集回调
+  onCoinCollect: (count: number) => void
 
   constructor(canvas: HTMLCanvasElement, onStateChange: (state: GameState, score: number, wave: number) => void) {
     this.canvas = canvas
@@ -59,9 +72,12 @@ export class GameEngine {
     this.mouseDown = false
     this.animationId = 0
     this.lastTime = 0
+    this.accumulator = 0
     this.touchInput = { x: 0, y: 0 }
     this.touchTarget = { x: canvas.width / 2, y: canvas.height - 80, active: false }
     this.controlMode = 'auto'
+    this.upgradeLevels = { attack: 0, fireRate: 0, maxHp: 0, speed: 0, bulletSpeed: 0 }
+    this.onCoinCollect = () => {}
     this.data = this.createEmptyData()
     this.bindInput()
   }
@@ -103,6 +119,44 @@ export class GameEngine {
     this.useBomb()
   }
 
+  /** 设置升级等级（从外部store同步） */
+  setUpgradeLevels(levels: UpgradeLevels): void {
+    this.upgradeLevels = { ...levels }
+  }
+
+  /** 设置金币收集回调 */
+  setOnCoinCollect(cb: (count: number) => void): void {
+    this.onCoinCollect = cb
+  }
+
+  /** 根据升级等级创建增强后的玩家 */
+  private createPlayerWithUpgrades(): Player {
+    const ul = this.upgradeLevels
+    return {
+      id: genId(),
+      x: this.canvas.width / 2 - 16,
+      y: this.canvas.height - 80,
+      width: 32,
+      height: 40,
+      active: true,
+      hp: PLAYER_MAX_HP + ul.maxHp,
+      maxHp: PLAYER_MAX_HP + ul.maxHp,
+      speed: PLAYER_SPEED + ul.speed * 0.5,
+      fireRate: Math.max(2, PLAYER_FIRE_RATE - ul.fireRate * 2),
+      fireTimer: 0,
+      bombCount: 3,
+      shieldTimer: 0,
+      spreadLevel: 1,
+      invincibleTimer: 0,
+      bulletSpeedMul: 1 + ul.bulletSpeed * 0.15,  // 每级+15%子弹速度
+    }
+  }
+
+  /** 获取当前攻击伤害（基础1 + 升级加成） */
+  private getAttackDamage(): number {
+    return 1 + this.upgradeLevels.attack
+  }
+
   private createEmptyData(): GameData {
     return {
       player: this.createPlayer(),
@@ -110,6 +164,7 @@ export class GameEngine {
       playerBullets: [],
       enemyBullets: [],
       powerups: [],
+      coins: [],
       particles: [],
       stars: [],
       score: 0,
@@ -122,6 +177,7 @@ export class GameEngine {
       shakeTimer: 0,
       shakeIntensity: 0,
       stats: { kills: 0, bossKills: 0, powerupsUsed: 0, playTime: 0, startTime: 0 },
+      coinsCollected: 0,
     }
   }
 
@@ -168,11 +224,12 @@ export class GameEngine {
 
   start(): void {
     this.stop()
-    this.data.player = this.createPlayer()
+    this.data.player = this.createPlayerWithUpgrades()
     this.data.enemies = []
     this.data.playerBullets = []
     this.data.enemyBullets = []
     this.data.powerups = []
+    this.data.coins = []
     this.data.particles = []
     this.data.score = 0
     this.data.wave = 0
@@ -184,6 +241,8 @@ export class GameEngine {
     this.data.shakeTimer = 0
     this.data.shakeIntensity = 0
     this.data.stats = { kills: 0, bossKills: 0, powerupsUsed: 0, playTime: 0, startTime: Date.now() }
+    this.data.coinsCollected = 0
+    this.accumulator = 0
     this.lastTime = performance.now()
     this.onStateChange('playing', 0, 1)
     this.loop()
@@ -219,11 +278,16 @@ export class GameEngine {
     const delta = now - this.lastTime
     this.lastTime = now
 
-    if (delta < 200) {
+    // 固定时间步长：无论实际帧率如何，每秒精确执行60次update
+    this.accumulator += Math.min(delta, 200)
+    let updates = 0
+    while (this.accumulator >= this.FIXED_DT && updates < 4) {
       this.update()
-      this.render()
+      this.accumulator -= this.FIXED_DT
+      updates++
     }
 
+    this.render()
     this.animationId = requestAnimationFrame(this.loop)
   }
 
@@ -265,6 +329,7 @@ export class GameEngine {
     this.updatePlayer()
     this.updateBullets()
     this.updateEnemies()
+    this.updateCoins()
     this.checkCollisions()
     this.updateParticles()
     this.updateStars()
@@ -454,7 +519,9 @@ export class GameEngine {
       this.data.enemiesInWave = 1
     } else {
       this.data.bossActive = false
-      this.data.enemiesInWave = WAVE_ENEMIES(this.data.wave)
+      const level = getLevel(this.data.wave)
+      const { countMul } = getLevelDifficulty(level)
+      this.data.enemiesInWave = Math.floor(WAVE_ENEMIES(this.data.wave) * countMul)
     }
 
     this.onStateChange('playing', this.data.score, this.data.wave)
@@ -462,6 +529,8 @@ export class GameEngine {
 
   spawnEnemy(type: EnemyType, x?: number): void {
     const cfg = ENEMY_CONFIGS[type]
+    const level = getLevel(this.data.wave)
+    const { hpMul, speedMul } = getLevelDifficulty(level)
     const enemy: Enemy = {
       id: genId(),
       x: x ?? Math.random() * (this.canvas.width - cfg.width),
@@ -469,9 +538,9 @@ export class GameEngine {
       width: cfg.width,
       height: cfg.height,
       active: true,
-      hp: cfg.hp,
-      maxHp: cfg.hp,
-      speed: cfg.speed,
+      hp: Math.ceil(cfg.hp * hpMul),
+      maxHp: Math.ceil(cfg.hp * hpMul),
+      speed: cfg.speed * speedMul,
       type,
       movePattern: Math.random() < 0.5 ? 0 : 1,
       fireTimer: 0,
@@ -486,6 +555,8 @@ export class GameEngine {
 
   spawnBoss(): void {
     const cfg = ENEMY_CONFIGS[EnemyType.BOSS]
+    const level = getLevel(this.data.wave)
+    const { hpMul, speedMul } = getLevelDifficulty(level)
     const boss: Enemy = {
       id: genId(),
       x: this.canvas.width / 2 - cfg.width / 2,
@@ -493,9 +564,9 @@ export class GameEngine {
       width: cfg.width,
       height: cfg.height,
       active: true,
-      hp: cfg.hp + (this.data.wave - 1) * 10,
-      maxHp: cfg.hp + (this.data.wave - 1) * 10,
-      speed: cfg.speed,
+      hp: Math.ceil((cfg.hp + (this.data.wave - 1) * 10) * hpMul),
+      maxHp: Math.ceil((cfg.hp + (this.data.wave - 1) * 10) * hpMul),
+      speed: cfg.speed * speedMul,
       type: EnemyType.BOSS,
       movePattern: 0,
       fireTimer: 0,
@@ -529,7 +600,7 @@ export class GameEngine {
           height: 14,
           active: true,
           speed: bspd,
-          damage: 1,
+          damage: this.getAttackDamage(),
           owner: 'player',
           bulletType: 'spread',
           _vx: Math.sin(a) * bspd,
@@ -548,7 +619,7 @@ export class GameEngine {
           height: 14,
           active: true,
           speed: bspd,
-          damage: 1,
+          damage: this.getAttackDamage(),
           owner: 'player',
           bulletType: 'spread',
           _vx: Math.sin(a) * bspd,
@@ -565,7 +636,7 @@ export class GameEngine {
         height: 14,
         active: true,
         speed: bspd,
-        damage: 1,
+        damage: this.getAttackDamage(),
         owner: 'player',
         bulletType: 'normal',
       })
@@ -678,6 +749,46 @@ export class GameEngine {
     })
   }
 
+  /** 生成金币 */
+  spawnCoin(x: number, y: number, value: number): void {
+    this.data.coins.push({
+      id: genId(),
+      x: x + (Math.random() - 0.5) * 20,
+      y: y + (Math.random() - 0.5) * 20,
+      width: 12,
+      height: 12,
+      active: true,
+      value,
+      vy: 0.5 + Math.random() * 0.5,
+    })
+  }
+
+  /** 敌人死亡时掉落金币 */
+  spawnCoinsFromEnemy(x: number, y: number, type: EnemyType): void {
+    if (type === EnemyType.BOSS) {
+      // Boss必掉多个金币
+      for (let i = 0; i < BOSS_COIN_COUNT; i++) {
+        this.spawnCoin(x, y, COIN_VALUES[type])
+      }
+    } else if (Math.random() < COIN_DROP_CHANCE) {
+      // 普通敌人概率掉落
+      this.spawnCoin(x, y, COIN_VALUES[type])
+    }
+  }
+
+  /** 更新金币位置 */
+  private updateCoins(): void {
+    for (const c of this.data.coins) {
+      if (!c.active) continue
+      c.y += c.vy
+      // 超出屏幕则移除
+      if (c.y > this.canvas.height + 20) {
+        c.active = false
+      }
+    }
+    this.data.coins = this.data.coins.filter((c) => c.active)
+  }
+
   useBomb(): void {
     const p = this.data.player
     if (!p.active || p.bombCount <= 0) return
@@ -703,6 +814,7 @@ export class GameEngine {
         }
         this.addParticles(e.x + e.width / 2, e.y + e.height / 2, ENEMY_CONFIGS[e.type].color, 20)
         this.spawnPowerup(e.x + e.width / 2, e.y + e.height / 2)
+        this.spawnCoinsFromEnemy(e.x + e.width / 2, e.y + e.height / 2, e.type)
       }
     }
 
@@ -734,6 +846,7 @@ export class GameEngine {
             this.data.stats.kills++
             this.addParticles(e.x + e.width / 2, e.y + e.height / 2, ENEMY_CONFIGS[e.type].color, 20)
             this.spawnPowerup(e.x + e.width / 2, e.y + e.height / 2)
+            this.spawnCoinsFromEnemy(e.x + e.width / 2, e.y + e.height / 2, e.type)
             if (e.type === EnemyType.BOSS) {
               this.data.bossActive = false
               this.data.stats.bossKills++
@@ -792,6 +905,17 @@ export class GameEngine {
       }
     }
 
+    // Player vs coins - 拾取金币
+    for (const c of this.data.coins) {
+      if (!c.active) continue
+      if (this.rectCollision(p, c)) {
+        c.active = false
+        this.data.coinsCollected += c.value
+        this.onCoinCollect(c.value)
+        this.addParticles(c.x + c.width / 2, c.y + c.height / 2, '#FFD700', 5)
+      }
+    }
+
     // Enemies vs player
     if (p.invincibleTimer <= 0) {
       for (const e of this.data.enemies) {
@@ -804,6 +928,7 @@ export class GameEngine {
               e.active = false
               this.data.score += e.score
               this.addParticles(e.x + e.width / 2, e.y + e.height / 2, ENEMY_CONFIGS[e.type].color, 20)
+              this.spawnCoinsFromEnemy(e.x + e.width / 2, e.y + e.height / 2, e.type)
             }
           } else {
             p.hp -= 2
@@ -820,6 +945,7 @@ export class GameEngine {
     this.data.playerBullets = this.data.playerBullets.filter((b) => b.active)
     this.data.enemyBullets = this.data.enemyBullets.filter((b) => b.active)
     this.data.powerups = this.data.powerups.filter((pw) => pw.active)
+    this.data.coins = this.data.coins.filter((c) => c.active)
     this.data.enemies = this.data.enemies.filter((e) => e.active)
   }
 
@@ -928,6 +1054,7 @@ export class GameEngine {
     // Render layers
     this.renderStars()
     this.renderPowerups()
+    this.renderCoins()
     this.renderEnemyBullets()
     this.renderEnemies()
     this.renderPlayerBullets()
@@ -1242,10 +1369,67 @@ export class GameEngine {
     }
   }
 
+  renderCoins(): void {
+    const ctx = this.ctx
+    for (const c of this.data.coins) {
+      if (!c.active) continue
+      const cx = c.x + c.width / 2
+      const cy = c.y + c.height / 2
+      const rot = Date.now() * 0.003 + c.id
+      const pulse = Math.sin(Date.now() * 0.005 + c.id) * 0.2 + 0.8
+
+      ctx.save()
+      ctx.translate(cx, cy)
+      ctx.rotate(rot)
+
+      // 金币光晕
+      ctx.shadowBlur = 14
+      ctx.shadowColor = '#FFD700'
+      ctx.fillStyle = `rgba(255, 215, 0, ${pulse * 0.25})`
+      ctx.beginPath()
+      ctx.arc(0, 0, 11, 0, Math.PI * 2)
+      ctx.fill()
+
+      // 金币本体 - 菱形
+      ctx.fillStyle = '#FFD700'
+      ctx.strokeStyle = '#B8860B'
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      ctx.moveTo(0, -7)
+      ctx.lineTo(7, 0)
+      ctx.lineTo(0, 7)
+      ctx.lineTo(-7, 0)
+      ctx.closePath()
+      ctx.fill()
+      ctx.stroke()
+
+      // 内层高亮菱形
+      ctx.fillStyle = '#FFF8DC'
+      ctx.beginPath()
+      ctx.moveTo(0, -4)
+      ctx.lineTo(4, 0)
+      ctx.lineTo(0, 4)
+      ctx.lineTo(-4, 0)
+      ctx.closePath()
+      ctx.fill()
+
+      ctx.restore()
+
+      // "$" 符号（不旋转，保持可读）
+      ctx.shadowBlur = 0
+      ctx.fillStyle = '#8B6914'
+      ctx.font = 'bold 9px monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('$', cx, cy + 1)
+    }
+  }
+
   renderHUD(): void {
     const ctx = this.ctx
     const p = this.data.player
     const w = this.canvas.width
+    const level = getLevel(this.data.wave)
 
     // HP bar - top left
     const hpBarX = 10
@@ -1282,11 +1466,17 @@ export class GameEngine {
     ctx.fillStyle = '#888'
     ctx.fillText('SCORE', w - 10, 36)
 
-    // Wave indicator - top center
+    // Level & Wave indicator - top center
     ctx.textAlign = 'center'
+    ctx.fillStyle = '#FFD700'
+    ctx.font = 'bold 10px monospace'
+    ctx.shadowBlur = 4
+    ctx.shadowColor = '#FFD700'
+    ctx.fillText(`LV.${level}`, w / 2, 12)
+    ctx.shadowBlur = 0
     ctx.fillStyle = '#ffffff'
     ctx.font = 'bold 12px monospace'
-    ctx.fillText(`WAVE ${this.data.wave}`, w / 2, 22)
+    ctx.fillText(`WAVE ${this.data.wave}`, w / 2, 28)
 
     // Bomb count - bottom left
     ctx.textAlign = 'left'
@@ -1320,6 +1510,18 @@ export class GameEngine {
       ctx.font = 'bold 10px monospace'
       ctx.fillText(`SHIELD ${Math.ceil(p.shieldTimer / 60)}s`, 10, this.canvas.height - 64)
     }
+
+    // Coin count - bottom right
+    ctx.textAlign = 'right'
+    ctx.fillStyle = '#FFD700'
+    ctx.font = 'bold 12px monospace'
+    ctx.shadowBlur = 4
+    ctx.shadowColor = '#FFD700'
+    ctx.fillText(`${this.data.coinsCollected}`, w - 10, this.canvas.height - 10)
+    ctx.shadowBlur = 0
+    ctx.font = '10px monospace'
+    ctx.fillStyle = '#888'
+    ctx.fillText('COINS', w - 10, this.canvas.height - 24)
   }
 
   // --- Wave Management ---

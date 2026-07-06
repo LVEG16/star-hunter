@@ -94,3 +94,30 @@ export async function getProfile(playerId: number): Promise<PlayerProfile> {
   if (!res.ok) throw new Error('Failed to fetch profile')
   return res.json()
 }
+
+// 玩家进度（金币+升级等级）
+export interface PlayerProgress {
+  coins: number
+  upgradeLevels: Record<string, number> | null
+}
+
+/** 从服务器获取玩家金币和升级等级 */
+export async function getPlayerProgress(playerId: number): Promise<PlayerProgress> {
+  const res = await fetch(`${API_BASE}/players/${playerId}/progress`)
+  if (!res.ok) throw new Error('Failed to fetch progress')
+  return res.json()
+}
+
+/** 同步金币和升级等级到服务器 */
+export async function syncPlayerProgress(
+  playerId: number,
+  coins: number,
+  upgradeLevels: { attack: number; fireRate: number; maxHp: number; speed: number; bulletSpeed: number }
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/players/${playerId}/progress`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ coins, upgradeLevels }),
+  })
+  if (!res.ok) throw new Error('Failed to sync progress')
+}

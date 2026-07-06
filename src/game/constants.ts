@@ -1,4 +1,4 @@
-import { EnemyType } from './types'
+import { EnemyType, UpgradeType } from './types'
 
 export const PLAYER_SPEED = 5
 export const PLAYER_MAX_HP = 5
@@ -52,4 +52,100 @@ export const ENEMY_FIRE_RATE_MAX = 3.0
 /** 根据wave计算敌人射击频率系数 */
 export function getEnemyFireRateMul(wave: number): number {
   return Math.min(ENEMY_FIRE_RATE_MAX, ENEMY_FIRE_RATE_INITIAL + (wave - 1) * ENEMY_FIRE_RATE_PER_WAVE)
+}
+
+// ===== 关卡系统 =====
+
+/** 每5个wave为一个关卡 */
+export const WAVES_PER_LEVEL = 5
+
+/** 根据wave计算当前关卡（1-based） */
+export function getLevel(wave: number): number {
+  return Math.floor((wave - 1) / WAVES_PER_LEVEL) + 1
+}
+
+/** 关卡难度系数 - 敌人HP/速度/数量随关卡提升 */
+export function getLevelDifficulty(level: number): { hpMul: number; speedMul: number; countMul: number } {
+  return {
+    hpMul: 1 + (level - 1) * 0.3,       // 每关+30% HP
+    speedMul: 1 + (level - 1) * 0.1,     // 每关+10% 速度
+    countMul: 1 + (level - 1) * 0.2,     // 每关+20% 数量
+  }
+}
+
+// ===== 金币掉落 =====
+
+/** 金币掉落概率（普通敌人） */
+export const COIN_DROP_CHANCE = 0.35
+
+/** Boss金币掉落数量 */
+export const BOSS_COIN_COUNT = 5
+
+/** 不同敌人的金币价值 */
+export const COIN_VALUES: Record<EnemyType, number> = {
+  [EnemyType.SMALL]: 1,
+  [EnemyType.MEDIUM]: 2,
+  [EnemyType.LARGE]: 3,
+  [EnemyType.BOSS]: 5,
+}
+
+// ===== 战机升级系统 =====
+
+export const UPGRADE_MAX_LEVEL = 10
+
+/** 升级配置 */
+export const UPGRADE_CONFIGS: Record<UpgradeType, {
+  name: string
+  icon: string
+  description: string
+  baseCost: number      // 基础费用
+  costScale: number     // 费用递增系数（每级费用 = baseCost * costScale^level）
+  effect: string        // 效果描述
+}> = {
+  attack: {
+    name: '攻击力',
+    icon: '⚔',
+    description: '子弹伤害+1',
+    baseCost: 30,
+    costScale: 1.5,
+    effect: '每级+1伤害',
+  },
+  fireRate: {
+    name: '射速',
+    icon: '🔥',
+    description: '射击间隔缩短',
+    baseCost: 40,
+    costScale: 1.6,
+    effect: '每级-2帧间隔',
+  },
+  maxHp: {
+    name: '血量',
+    icon: '❤',
+    description: '最大生命+1',
+    baseCost: 25,
+    costScale: 1.4,
+    effect: '每级+1最大HP',
+  },
+  speed: {
+    name: '移动速度',
+    icon: '💨',
+    description: '飞船速度+0.5',
+    baseCost: 35,
+    costScale: 1.5,
+    effect: '每级+0.5速度',
+  },
+  bulletSpeed: {
+    name: '子弹速度',
+    icon: '⚡',
+    description: '子弹飞行速度+0.5',
+    baseCost: 30,
+    costScale: 1.5,
+    effect: '每级+0.5速度',
+  },
+}
+
+/** 计算升级到指定等级所需金币 */
+export function getUpgradeCost(type: UpgradeType, currentLevel: number): number {
+  const cfg = UPGRADE_CONFIGS[type]
+  return Math.floor(cfg.baseCost * Math.pow(cfg.costScale, currentLevel))
 }

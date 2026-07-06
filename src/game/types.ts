@@ -60,6 +60,24 @@ export interface Powerup extends Entity {
   type: PowerupType
 }
 
+// 金币实体
+export interface Coin extends Entity {
+  value: number  // 金币价值
+  vy: number     // 下落速度
+}
+
+// 战机升级类型
+export type UpgradeType = 'attack' | 'fireRate' | 'maxHp' | 'speed' | 'bulletSpeed'
+
+// 升级等级信息
+export interface UpgradeLevels {
+  attack: number      // 攻击力等级（影响子弹伤害）
+  fireRate: number    // 射速等级（影响发射间隔）
+  maxHp: number       // 血量等级（影响最大生命）
+  speed: number       // 移动速度等级
+  bulletSpeed: number // 子弹速度等级
+}
+
 export interface Particle {
   x: number
   y: number
@@ -104,6 +122,7 @@ export interface GameData {
   playerBullets: Bullet[]
   enemyBullets: Bullet[]
   powerups: Powerup[]
+  coins: Coin[]
   particles: Particle[]
   stars: Star[]
   score: number
@@ -116,4 +135,5 @@ export interface GameData {
   shakeTimer: number
   shakeIntensity: number
   stats: GameStats
+  coinsCollected: number  // 本局收集的金币数
 }

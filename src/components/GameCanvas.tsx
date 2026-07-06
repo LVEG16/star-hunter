@@ -17,6 +17,8 @@ export default function GameCanvas() {
   const pauseGame = useGameStore((s) => s.pauseGame)
   const resumeGame = useGameStore((s) => s.resumeGame)
   const controlMode = useGameStore((s) => s.controlMode)
+  const addCoins = useGameStore((s) => s.addCoins)
+  const upgradeLevels = useGameStore((s) => s.upgradeLevels)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -37,6 +39,8 @@ export default function GameCanvas() {
         endGame()
       }
     })
+    engine.setOnCoinCollect((count) => addCoins(count))
+    engine.setUpgradeLevels(useGameStore.getState().upgradeLevels)
     engineRef.current = engine
     setEngineReady(true)
 
@@ -44,7 +48,7 @@ export default function GameCanvas() {
       window.removeEventListener('resize', resizeCanvas)
       engine.stop()
     }
-  }, [setScore, setWave, setStats, endGame])
+  }, [setScore, setWave, setStats, endGame, addCoins])
 
   // 应用控制模式
   useEffect(() => {
@@ -53,23 +57,14 @@ export default function GameCanvas() {
     }
   }, [controlMode, engineReady])
 
-  // 游戏状态变化处理
+  // 同步升级等级到引擎
   useEffect(() => {
-    const engine = engineRef.current
-    if (!engine) return
-
-    if (gameState === 'playing') {
-      // 如果是从暂停恢复，调用resume；否则是新游戏，调用start
-      // 通过检查animationId判断是否在运行
-      if (engine.animationId === 0) {
-        engine.resume()
-      }
-    } else {
-      engine.stop()
+    if (engineRef.current) {
+      engineRef.current.setUpgradeLevels(upgradeLevels)
     }
-  }, [gameState])
+  }, [upgradeLevels, engineReady])
 
-  // 监听新游戏：当 gameState 变为 playing 且之前不是 paused 时，需要 start
+  // 游戏状态变化处理 - 统一管理，避免双循环
   const prevGameStateRef = useRef(gameState)
   useEffect(() => {
     const engine = engineRef.current
@@ -78,10 +73,20 @@ export default function GameCanvas() {
     const prev = prevGameStateRef.current
     prevGameStateRef.current = gameState
 
-    if (gameState === 'playing' && prev !== 'paused') {
-      // 新游戏或从menu/gameover开始
-      engine.init()
-      engine.start()
+    if (gameState === 'playing') {
+      if (prev === 'paused') {
+        // 从暂停恢复
+        engine.resume()
+      } else {
+        // 新游戏（从menu/gameover开始）
+        engine.init()
+        engine.start()
+      }
+    } else if (gameState === 'paused') {
+      engine.pause()
+    } else {
+      // menu/gameover - 停止循环
+      engine.stop()
     }
   }, [gameState])
 
@@ -101,17 +106,6 @@ export default function GameCanvas() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [pauseGame, resumeGame])
-
-  // 暂停/恢复引擎
-  useEffect(() => {
-    const engine = engineRef.current
-    if (!engine) return
-    if (gameState === 'paused') {
-      engine.pause()
-    } else if (gameState === 'playing') {
-      // resume 由上面的逻辑处理
-    }
-  }, [gameState])
 
   const handleResume = useCallback(() => {
     resumeGame()

@@ -6,6 +6,7 @@ import playersRouter from './routes/players.js';
 import scoresRouter from './routes/scores.js';
 import leaderboardRouter from './routes/leaderboard.js';
 import profileRouter from './routes/profile.js';
+import coinsRouter from './routes/coins.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +22,7 @@ app.use(playersRouter);
 app.use(scoresRouter);
 app.use(leaderboardRouter);
 app.use(profileRouter);
+app.use(coinsRouter);
 
 // Serve frontend static files
 const publicDir = path.join(__dirname, 'public');

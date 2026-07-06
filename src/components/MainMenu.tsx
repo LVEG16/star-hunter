@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Trophy, User, LogIn } from 'lucide-react'
+import { Trophy, User, LogIn, Coins, Zap } from 'lucide-react'
 import { useGameStore } from '@/store/gameStore'
 import { getProfile } from '@/lib/api'
 import Avatar from './Avatar'
 import ControlSwitcher from './ControlSwitcher'
+import UpgradeShop from './UpgradeShop'
 
 export default function MainMenu() {
   const navigate = useNavigate()
@@ -13,6 +14,9 @@ export default function MainMenu() {
   const setShowLogin = useGameStore((s) => s.setShowLogin)
   const controlMode = useGameStore((s) => s.controlMode)
   const setControlMode = useGameStore((s) => s.setControlMode)
+  const coins = useGameStore((s) => s.coins)
+  const showUpgradeShop = useGameStore((s) => s.showUpgradeShop)
+  const setShowUpgradeShop = useGameStore((s) => s.setShowUpgradeShop)
 
   const [highScore, setHighScore] = useState<number | null>(null)
 
@@ -128,6 +132,19 @@ export default function MainMenu() {
           开始游戏
         </button>
 
+        {/* 升级商店按钮 */}
+        <button
+          onClick={() => setShowUpgradeShop(true)}
+          className="flex items-center gap-2 rounded-lg border border-[#FFD700]/40 bg-[#FFD700]/10 px-6 py-2.5 font-rajdhani text-base font-bold text-[#FFD700] transition-all hover:border-[#FFD700] hover:bg-[#FFD700]/20"
+        >
+          <Zap size={18} />
+          战机升级
+          <span className="flex items-center gap-1 rounded bg-[#FFD700]/20 px-2 py-0.5 text-xs">
+            <Coins size={12} />
+            {coins}
+          </span>
+        </button>
+
         {/* Control mode switcher */}
         <ControlSwitcher mode={controlMode} onChange={setControlMode} />
 
@@ -191,6 +208,9 @@ export default function MainMenu() {
           </p>
         )}
       </div>
+
+      {/* 升级商店弹窗 */}
+      {showUpgradeShop && <UpgradeShop />}
     </div>
   )
 }
