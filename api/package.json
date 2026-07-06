@@ -1,0 +1,16 @@
+{
+  "name": "star-hunter-server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "build": "cd .. && npm run build"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "better-sqlite3": "^11.7.0",
+    "cors": "^2.8.5"
+  },
+  "allowScripts": {}
+}

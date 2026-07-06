@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: star-hunter
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node api/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_PATH
+        value: /data/starhunter.db
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1

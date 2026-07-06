@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Rajdhani', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0a0a1a;
+}
+
+/* Neon glow animation */
+@keyframes neonPulse {
+  0%, 100% { text-shadow: 0 0 10px #00FFD1, 0 0 20px #00FFD1, 0 0 40px #00FFD1; }
+  50% { text-shadow: 0 0 5px #00FFD1, 0 0 10px #00FFD1, 0 0 20px #00FFD1; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 5px #00FFD1, 0 0 10px #00FFD1; }
+  50% { box-shadow: 0 0 10px #00FFD1, 0 0 20px #00FFD1, 0 0 40px #00FFD1; }
+}
+
+@keyframes scoreCount {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes newHighScore {
+  0%, 100% { text-shadow: 0 0 10px #FFD700, 0 0 20px #FFD700; transform: scale(1); }
+  50% { text-shadow: 0 0 20px #FFD700, 0 0 40px #FFD700; transform: scale(1.05); }
+}
+
+.neon-title {
+  animation: neonPulse 2s ease-in-out infinite;
+}
+
+.neon-button {
+  animation: glowPulse 2s ease-in-out infinite;
+  transition: all 0.3s ease;
+}
+
+.neon-button:hover {
+  animation: none;
+  box-shadow: 0 0 20px #00FFD1, 0 0 40px #00FFD1, 0 0 60px #00FFD1;
+  transform: scale(1.05);
+}
+
+.float-anim {
+  animation: float 3s ease-in-out infinite;
+}
+
+.new-high-score {
+  animation: newHighScore 1s ease-in-out infinite;
+}
