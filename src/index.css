@@ -25,6 +25,20 @@ html, body, #root {
   background: #0a0a1a;
 }
 
+/* 移动端触摸优化 */
+html, body {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+canvas {
+  touch-action: none;
+}
+
 /* Neon glow animation */
 @keyframes neonPulse {
   0%, 100% { text-shadow: 0 0 10px #00FFD1, 0 0 20px #00FFD1, 0 0 40px #00FFD1; }

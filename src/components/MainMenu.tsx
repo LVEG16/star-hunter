@@ -4,12 +4,15 @@ import { Trophy, User, LogIn } from 'lucide-react'
 import { useGameStore } from '@/store/gameStore'
 import { getProfile } from '@/lib/api'
 import Avatar from './Avatar'
+import ControlSwitcher from './ControlSwitcher'
 
 export default function MainMenu() {
   const navigate = useNavigate()
   const player = useGameStore((s) => s.player)
   const startGame = useGameStore((s) => s.startGame)
   const setShowLogin = useGameStore((s) => s.setShowLogin)
+  const controlMode = useGameStore((s) => s.controlMode)
+  const setControlMode = useGameStore((s) => s.setControlMode)
 
   const [highScore, setHighScore] = useState<number | null>(null)
 
@@ -38,6 +41,11 @@ export default function MainMenu() {
     if (player) navigate(`/profile/${player.id}`)
     else setShowLogin(true)
   }
+
+  // 根据当前控制模式显示不同的操作说明
+  const isTouchMode =
+    controlMode === 'touch' ||
+    (controlMode === 'auto' && ('ontouchstart' in window || navigator.maxTouchPoints > 0))
 
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -120,7 +128,10 @@ export default function MainMenu() {
           开始游戏
         </button>
 
-        {/* Instructions */}
+        {/* Control mode switcher */}
+        <ControlSwitcher mode={controlMode} onChange={setControlMode} />
+
+        {/* Instructions - 根据控制模式显示不同内容 */}
         <div
           className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-md"
           style={{ boxShadow: '0 0 20px rgba(0, 255, 209, 0.1)' }}
@@ -128,32 +139,49 @@ export default function MainMenu() {
           <h3 className="mb-4 text-center font-orbitron text-sm tracking-widest text-[#00FFD1]/80">
             操作说明
           </h3>
-          <div className="flex flex-col gap-2 font-rajdhani text-lg text-white/80">
-            <div className="flex items-center gap-3">
-              <span className="inline-block w-28 text-right font-semibold text-[#00FFD1]">
-                WASD / 方向键
-              </span>
-              <span>- 移动</span>
+          {isTouchMode ? (
+            <div className="flex flex-col gap-2 font-rajdhani text-lg text-white/80">
+              <div className="flex items-center gap-3">
+                <span className="inline-block w-28 text-right font-semibold text-[#00FFD1]">
+                  拖动屏幕
+                </span>
+                <span>- 移动飞船</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="inline-block w-28 text-right font-semibold text-[#00FFD1]">
+                  自动射击
+                </span>
+                <span>- 持续开火</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="inline-block w-28 text-right font-semibold text-[#00FFD1]">
+                  右下按钮
+                </span>
+                <span>- 释放炸弹</span>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="inline-block w-28 text-right font-semibold text-[#00FFD1]">
-                自动射击
-              </span>
-              <span>- 持续开火</span>
+          ) : (
+            <div className="flex flex-col gap-2 font-rajdhani text-lg text-white/80">
+              <div className="flex items-center gap-3">
+                <span className="inline-block w-28 text-right font-semibold text-[#00FFD1]">
+                  WASD / 方向键
+                </span>
+                <span>- 移动</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="inline-block w-28 text-right font-semibold text-[#00FFD1]">
+                  自动射击
+                </span>
+                <span>- 持续开火</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="inline-block w-28 text-right font-semibold text-[#00FFD1]">
+                  空格键
+                </span>
+                <span>- 炸弹</span>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="inline-block w-28 text-right font-semibold text-[#00FFD1]">
-                空格键
-              </span>
-              <span>- 炸弹</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="inline-block w-28 text-right font-semibold text-[#00FFD1]">
-                鼠标
-              </span>
-              <span>- 辅助瞄准</span>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* High score */}

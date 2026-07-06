@@ -23,12 +23,16 @@ import {
   BOSS_EVERY_N_WAVES,
   POWERUP_DROP_CHANCE,
   CANVAS_BG,
+  getGameSpeed,
+  getEnemyFireRateMul,
 } from './constants'
 
 let nextId = 1
 function genId(): number {
   return nextId++
 }
+
+export type ControlMode = 'auto' | 'keyboard' | 'touch'
 
 export class GameEngine {
   canvas: HTMLCanvasElement
@@ -40,6 +44,11 @@ export class GameEngine {
   animationId: number
   onStateChange: (state: GameState, score: number, wave: number) => void
   private lastTime: number
+  // 触摸输入向量（来自虚拟摇杆），范围 -1..1
+  touchInput: { x: number; y: number }
+  // 拖动飞船模式：目标位置
+  touchTarget: { x: number; y: number; active: boolean }
+  controlMode: ControlMode
 
   constructor(canvas: HTMLCanvasElement, onStateChange: (state: GameState, score: number, wave: number) => void) {
     this.canvas = canvas
@@ -50,8 +59,48 @@ export class GameEngine {
     this.mouseDown = false
     this.animationId = 0
     this.lastTime = 0
+    this.touchInput = { x: 0, y: 0 }
+    this.touchTarget = { x: canvas.width / 2, y: canvas.height - 80, active: false }
+    this.controlMode = 'auto'
     this.data = this.createEmptyData()
     this.bindInput()
+  }
+
+  /** 设置控制模式 */
+  setControlMode(mode: ControlMode): void {
+    this.controlMode = mode
+  }
+
+  /** 获取当前实际使用的控制方式 */
+  getActiveControl(): 'keyboard' | 'touch' {
+    if (this.controlMode === 'keyboard') return 'keyboard'
+    if (this.controlMode === 'touch') return 'touch'
+    // auto: 根据是否触摸设备自动判断
+    const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+    return isTouch ? 'touch' : 'keyboard'
+  }
+
+  /** 设置触摸输入（供外部虚拟摇杆调用） */
+  setTouchInput(x: number, y: number): void {
+    this.touchInput.x = x
+    this.touchInput.y = y
+  }
+
+  /** 设置拖动目标位置（供外部拖动控制调用） */
+  setTouchTarget(x: number, y: number): void {
+    this.touchTarget.x = x
+    this.touchTarget.y = y
+    this.touchTarget.active = true
+  }
+
+  /** 清除拖动目标 */
+  clearTouchTarget(): void {
+    this.touchTarget.active = false
+  }
+
+  /** 触发炸弹（供外部按钮调用） */
+  triggerBomb(): void {
+    this.useBomb()
   }
 
   private createEmptyData(): GameData {
@@ -103,6 +152,7 @@ export class GameEngine {
       shieldTimer: 0,
       spreadLevel: 1,
       invincibleTimer: 0,
+      bulletSpeedMul: 1,
     }
   }
 
@@ -117,6 +167,7 @@ export class GameEngine {
   }
 
   start(): void {
+    this.stop()
     this.data.player = this.createPlayer()
     this.data.enemies = []
     this.data.playerBullets = []
@@ -143,6 +194,24 @@ export class GameEngine {
       cancelAnimationFrame(this.animationId)
       this.animationId = 0
     }
+  }
+
+  /** 暂停游戏：停止循环但保留状态 */
+  pause(): void {
+    this.stop()
+  }
+
+  /** 恢复游戏：从暂停状态继续 */
+  resume(): void {
+    if (this.animationId) return // 已经在运行
+    this.lastTime = performance.now()
+    this.loop()
+  }
+
+  /** 重启游戏：重置数据并重新开始 */
+  restart(): void {
+    this.stop()
+    this.start()
   }
 
   private loop = (): void => {
@@ -218,21 +287,48 @@ export class GameEngine {
     const p = this.data.player
     if (!p.active) return
 
-    let dx = 0
-    let dy = 0
-    if (this.keys.has('w') || this.keys.has('arrowup')) dy -= 1
-    if (this.keys.has('s') || this.keys.has('arrowdown')) dy += 1
-    if (this.keys.has('a') || this.keys.has('arrowleft')) dx -= 1
-    if (this.keys.has('d') || this.keys.has('arrowright')) dx += 1
+    const useTouch = this.getActiveControl() === 'touch'
 
-    if (dx !== 0 && dy !== 0) {
-      const len = Math.sqrt(dx * dx + dy * dy)
-      dx /= len
-      dy /= len
+    if (useTouch && this.touchTarget.active) {
+      // 拖动飞船模式：平滑移动到目标位置
+      const targetX = this.touchTarget.x - p.width / 2
+      const targetY = this.touchTarget.y - p.height / 2
+      const dx = targetX - p.x
+      const dy = targetY - p.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      // 平滑跟随，距离越远移动越快，但有上限
+      const moveSpeed = Math.min(dist, p.speed * 1)
+      if (dist > 0.5) {
+        p.x += (dx / dist) * moveSpeed
+        p.y += (dy / dist) * moveSpeed
+      }
+    } else if (useTouch) {
+      // 兼容旧摇杆输入（已不使用，保留以防回退）
+      let dx = this.touchInput.x
+      let dy = this.touchInput.y
+      const mag = Math.sqrt(dx * dx + dy * dy)
+      if (mag > 1) {
+        dx /= mag
+        dy /= mag
+      }
+      p.x += dx * p.speed
+      p.y += dy * p.speed
+    } else {
+      // 键盘模式
+      let dx = 0
+      let dy = 0
+      if (this.keys.has('w') || this.keys.has('arrowup')) dy -= 1
+      if (this.keys.has('s') || this.keys.has('arrowdown')) dy += 1
+      if (this.keys.has('a') || this.keys.has('arrowleft')) dx -= 1
+      if (this.keys.has('d') || this.keys.has('arrowright')) dx += 1
+      if (dx !== 0 && dy !== 0) {
+        const len = Math.sqrt(dx * dx + dy * dy)
+        dx /= len
+        dy /= len
+      }
+      p.x += dx * p.speed
+      p.y += dy * p.speed
     }
-
-    p.x += dx * p.speed
-    p.y += dy * p.speed
 
     p.x = this.clamp(p.x, 0, this.canvas.width - p.width)
     p.y = this.clamp(p.y, 0, this.canvas.height - p.height)
@@ -291,19 +387,20 @@ export class GameEngine {
   }
 
   private updateEnemies(): void {
+    const speedMul = getGameSpeed(this.data.wave)
     for (const e of this.data.enemies) {
       if (!e.active) continue
       e.moveTimer++
 
       switch (e.type) {
         case EnemyType.SMALL:
-          e.y += e.speed
-          e.x += Math.sin(e.moveTimer * 0.05) * 1.5
+          e.y += e.speed * speedMul
+          e.x += Math.sin(e.moveTimer * 0.05) * 1.5 * speedMul
           break
         case EnemyType.MEDIUM: {
-          e.y += e.speed * 0.7
+          e.y += e.speed * 0.7 * speedMul
           const dir = e.movePattern % 2 === 0 ? 1 : -1
-          e.x += e.speed * dir
+          e.x += e.speed * dir * speedMul
           if (e.x <= 0 || e.x >= this.canvas.width - e.width) {
             e.movePattern++
           }
@@ -311,24 +408,26 @@ export class GameEngine {
         }
         case EnemyType.LARGE:
           if (e.y < e.targetY) {
-            e.y += e.speed
+            e.y += e.speed * speedMul
           } else {
-            e.x += Math.sin(e.moveTimer * 0.02) * 2
+            e.x += Math.sin(e.moveTimer * 0.02) * 2 * speedMul
           }
           break
         case EnemyType.BOSS:
           if (e.y < 80) {
-            e.y += e.speed
+            e.y += e.speed * speedMul
           } else {
-            e.x += Math.sin(e.moveTimer * 0.015) * 3
+            e.x += Math.sin(e.moveTimer * 0.015) * 3 * speedMul
           }
           break
       }
 
-      // Enemy firing
+      // Enemy firing - 射击频率随wave提升
       if (e.fireRate > 0) {
         e.fireTimer++
-        if (e.fireTimer >= e.fireRate) {
+        const fireRateMul = getEnemyFireRateMul(this.data.wave)
+        const effectiveFireRate = Math.max(4, e.fireRate / (speedMul * fireRateMul * 0.6))
+        if (e.fireTimer >= effectiveFireRate) {
           this.enemyShoot(e)
           e.fireTimer = 0
         }
@@ -416,6 +515,7 @@ export class GameEngine {
 
     const cx = p.x + p.width / 2
     const cy = p.y
+    const bspd = PLAYER_BULLET_SPEED * p.bulletSpeedMul
 
     if (p.spreadLevel >= 3) {
       // 5-way spread
@@ -428,12 +528,12 @@ export class GameEngine {
           width: 6,
           height: 14,
           active: true,
-          speed: PLAYER_BULLET_SPEED,
+          speed: bspd,
           damage: 1,
           owner: 'player',
           bulletType: 'spread',
-          _vx: Math.sin(a) * PLAYER_BULLET_SPEED,
-          _vy: -Math.cos(a) * PLAYER_BULLET_SPEED,
+          _vx: Math.sin(a) * bspd,
+          _vy: -Math.cos(a) * bspd,
         } as any)
       }
     } else if (p.spreadLevel >= 2) {
@@ -447,12 +547,12 @@ export class GameEngine {
           width: 6,
           height: 14,
           active: true,
-          speed: PLAYER_BULLET_SPEED,
+          speed: bspd,
           damage: 1,
           owner: 'player',
           bulletType: 'spread',
-          _vx: Math.sin(a) * PLAYER_BULLET_SPEED,
-          _vy: -Math.cos(a) * PLAYER_BULLET_SPEED,
+          _vx: Math.sin(a) * bspd,
+          _vy: -Math.cos(a) * bspd,
         } as any)
       }
     } else {
@@ -464,7 +564,7 @@ export class GameEngine {
         width: 6,
         height: 14,
         active: true,
-        speed: PLAYER_BULLET_SPEED,
+        speed: bspd,
         damage: 1,
         owner: 'player',
         bulletType: 'normal',
@@ -490,12 +590,12 @@ export class GameEngine {
             width: 8,
             height: 8,
             active: true,
-            speed: 3,
+            speed: 1.8,
             damage: 1,
             owner: 'enemy',
             bulletType: 'boss',
-            _vx: Math.cos(angle) * 3,
-            _vy: Math.sin(angle) * 3,
+            _vx: Math.cos(angle) * 1.8,
+            _vy: Math.sin(angle) * 1.8,
           } as any)
         }
       } else if (pattern === 1) {
@@ -511,12 +611,12 @@ export class GameEngine {
             width: 8,
             height: 8,
             active: true,
-            speed: 4,
+            speed: 2.4,
             damage: 1,
             owner: 'enemy',
             bulletType: 'boss',
-            _vx: (dx / dist) * 4,
-            _vy: (dy / dist) * 4,
+            _vx: (dx / dist) * 2.4,
+            _vy: (dy / dist) * 2.4,
           } as any)
         }
       } else {
@@ -531,12 +631,12 @@ export class GameEngine {
             width: 8,
             height: 8,
             active: true,
-            speed: 3.5,
+            speed: 2.1,
             damage: 1,
             owner: 'enemy',
             bulletType: 'boss',
-            _vx: Math.cos(a) * 3.5,
-            _vy: Math.sin(a) * 3.5,
+            _vx: Math.cos(a) * 2.1,
+            _vy: Math.sin(a) * 2.1,
           } as any)
         }
       }
@@ -545,7 +645,7 @@ export class GameEngine {
       const dx = this.data.player.x + this.data.player.width / 2 - cx
       const dy = this.data.player.y + this.data.player.height / 2 - cy
       const dist = Math.sqrt(dx * dx + dy * dy) || 1
-      const spd = 3
+      const spd = 1.8
       this.data.enemyBullets.push({
         id: genId(),
         x: cx - 4,
@@ -565,7 +665,7 @@ export class GameEngine {
 
   spawnPowerup(x: number, y: number): void {
     if (Math.random() > POWERUP_DROP_CHANCE) return
-    const types: PowerupType[] = ['spread', 'shield', 'bomb', 'heal']
+    const types: PowerupType[] = ['spread', 'shield', 'bomb', 'heal', 'bulletspeed']
     const type = types[Math.floor(Math.random() * types.length)]
     this.data.powerups.push({
       id: genId(),
@@ -684,6 +784,9 @@ export class GameEngine {
             break
           case 'heal':
             p.hp = Math.min(p.hp + 1, p.maxHp)
+            break
+          case 'bulletspeed':
+            p.bulletSpeedMul = Math.min(p.bulletSpeedMul + 0.5, 3)
             break
         }
       }
@@ -1054,17 +1157,27 @@ export class GameEngine {
     } else {
       if (bullet.bulletType === 'boss') {
         // Boss bullet: purple larger circle with glow
-        ctx.shadowBlur = 12
-        ctx.shadowColor = '#9400D3'
-        ctx.fillStyle = '#9400D3'
+        ctx.shadowBlur = 20
+        ctx.shadowColor = '#FF00FF'
+        ctx.fillStyle = '#FF00FF'
         ctx.beginPath()
-        ctx.arc(cx, cy, 5, 0, Math.PI * 2)
+        ctx.arc(cx, cy, 8, 0, Math.PI * 2)
+        ctx.fill()
+        // 内核高亮
+        ctx.fillStyle = '#FFFFFF'
+        ctx.beginPath()
+        ctx.arc(cx, cy, 4, 0, Math.PI * 2)
         ctx.fill()
       } else {
         // Normal enemy bullet: orange-red circle with glow
-        ctx.shadowBlur = 10
-        ctx.shadowColor = '#FF4D4D'
-        ctx.fillStyle = '#FF4D4D'
+        ctx.shadowBlur = 18
+        ctx.shadowColor = '#FF3333'
+        ctx.fillStyle = '#FF3333'
+        ctx.beginPath()
+        ctx.arc(cx, cy, 6, 0, Math.PI * 2)
+        ctx.fill()
+        // 内核高亮
+        ctx.fillStyle = '#FFFF00'
         ctx.beginPath()
         ctx.arc(cx, cy, 3, 0, Math.PI * 2)
         ctx.fill()
@@ -1114,6 +1227,7 @@ export class GameEngine {
       shield: 'D',
       bomb: 'B',
       heal: '+',
+      bulletspeed: 'V',
     }
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
@@ -1190,17 +1304,28 @@ export class GameEngine {
       ctx.fillText(`SPREAD LV${p.spreadLevel}`, 10, this.canvas.height - 28)
     }
 
+    // Bullet speed indicator
+    if (p.bulletSpeedMul > 1) {
+      ctx.fillStyle = '#FF6600'
+      ctx.font = 'bold 10px monospace'
+      ctx.shadowBlur = 4
+      ctx.shadowColor = '#FF6600'
+      ctx.fillText(`BULLET SPD x${p.bulletSpeedMul.toFixed(1)}`, 10, this.canvas.height - 46)
+      ctx.shadowBlur = 0
+    }
+
     // Shield indicator
     if (p.shieldTimer > 0) {
       ctx.fillStyle = '#00BFFF'
       ctx.font = 'bold 10px monospace'
-      ctx.fillText(`SHIELD ${Math.ceil(p.shieldTimer / 60)}s`, 10, this.canvas.height - 46)
+      ctx.fillText(`SHIELD ${Math.ceil(p.shieldTimer / 60)}s`, 10, this.canvas.height - 64)
     }
   }
 
   // --- Wave Management ---
 
   private updateWaves(): void {
+    const speedMul = getGameSpeed(this.data.wave)
     if (this.data.waveTimer > 0) {
       this.data.waveTimer--
       return
@@ -1225,8 +1350,8 @@ export class GameEngine {
         else type = EnemyType.LARGE
         this.spawnEnemy(type)
       }
-      // Delay between spawns
-      this.data.waveTimer = this.data.bossActive ? 0 : 25
+      // Delay between spawns - 速度系数影响生成间隔（速度越高生成越快）
+      this.data.waveTimer = this.data.bossActive ? 0 : Math.max(8, Math.floor(25 / speedMul))
     }
 
     // Check if wave is complete

@@ -22,6 +22,7 @@ export interface Player extends Entity {
   shieldTimer: number
   spreadLevel: number
   invincibleTimer: number
+  bulletSpeedMul: number
 }
 
 export enum EnemyType {
@@ -53,7 +54,7 @@ export interface Bullet extends Entity {
   bulletType: 'normal' | 'spread' | 'boss'
 }
 
-export type PowerupType = 'spread' | 'shield' | 'bomb' | 'heal'
+export type PowerupType = 'spread' | 'shield' | 'bomb' | 'heal' | 'bulletspeed'
 
 export interface Powerup extends Entity {
   type: PowerupType

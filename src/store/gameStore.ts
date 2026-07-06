@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import type { PlayerInfo, GameStats } from '@/game/types'
+import type { ControlMode } from '@/game/engine'
 
-type GameState = 'menu' | 'playing' | 'gameover'
+type GameState = 'menu' | 'playing' | 'paused' | 'gameover'
 
 interface GameStore {
   // Auth
@@ -23,8 +24,14 @@ interface GameStore {
   showLogin: boolean
   setShowLogin: (show: boolean) => void
 
+  // Control mode
+  controlMode: ControlMode
+  setControlMode: (mode: ControlMode) => void
+
   // Actions
   startGame: () => void
+  pauseGame: () => void
+  resumeGame: () => void
   endGame: () => void
   resetGame: () => void
   logout: () => void
@@ -63,6 +70,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
   showLogin: false,
   setShowLogin: (showLogin) => set({ showLogin }),
 
+  controlMode: ((): ControlMode => {
+    const saved = localStorage.getItem('controlMode') as ControlMode | null
+    return saved || 'auto'
+  })(),
+  setControlMode: (controlMode) => {
+    localStorage.setItem('controlMode', controlMode)
+    set({ controlMode })
+  },
+
   startGame: () => {
     if (!get().player) {
       set({ showLogin: true })
@@ -70,6 +86,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
     set({ gameState: 'playing', score: 0, wave: 1, stats: null })
   },
+  pauseGame: () => set({ gameState: 'paused' }),
+  resumeGame: () => set({ gameState: 'playing' }),
   endGame: () => set({ gameState: 'gameover' }),
   resetGame: () => set({ gameState: 'menu', score: 0, wave: 1, stats: null }),
   logout: () => {
